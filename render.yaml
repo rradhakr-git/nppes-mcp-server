@@ -1,0 +1,21 @@
+# Render.com deployment configuration
+# Docs: https://render.com/docs/yaml
+
+services:
+  - type: web
+    name: nppes-mcp-server
+    env: docker
+    dockerfilePath: Dockerfile
+    dockerCommand: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    envVars:
+      - key: REDIS_URL
+        sync: false  # Set in Render dashboard
+      - key: LOG_LEVEL
+        value: INFO
+      - key: CACHE_TTL_SECONDS
+        value: 3600
+      - key: CACHE_KEY_PREFIX
+        value: nppes
+      - key: REQUEST_TIMEOUT_SECONDS
+        value: 30
+    autoDeploy: true

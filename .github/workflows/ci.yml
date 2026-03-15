@@ -1,0 +1,61 @@
+# GitHub Actions CI pipeline for NPPES MCP Server
+#
+# Runs test suites in order: unit → integration → contract → e2e
+# E2E is non-blocking (infrastructure-only)
+# Coverage gate at 85%
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out code from repository
+      - uses: actions/checkout@v4
+
+      # 2. Set up Python 3.11
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Install dev dependencies (includes test runner, stubs, etc.)
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # 4. Unit tests - fastest, fully stubbed
+      #    Fail fast on logic errors (~2s)
+      - name: Unit tests
+        run: pytest tests/unit -q --tb=short
+
+      # 5. Integration tests - uses FastAPI TestClient
+      #    Tests tools + cache + RAG pipeline wired together (~1s)
+      - name: Integration tests
+        run: pytest tests/integration -q
+
+      # 6. Contract tests - hits live NPPES API
+      #    Validates our client matches live API schema (~2s)
+      - name: Contract tests
+        run: pytest tests/contract -q
+
+      # 7. E2E tests - hits live MCP server
+      #    Only runs on main branch pushes (not PRs from forks)
+      #    Non-blocking: Render free tier cold starts can fail unrelated to code
+      #    Requires MCP_SERVER_URL secret in repo settings
+      - name: E2E tests
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: pytest tests/e2e -q
+        env:
+          MCP_SERVER_URL: ${{ secrets.MCP_SERVER_URL }}
+
+      # 8. Coverage gate - fail if below 85%
+      #    Ensures production-grade test coverage
+      - name: Coverage report
+        run: pytest --cov=app --cov-fail-under=85 --cov-report=term-missing
