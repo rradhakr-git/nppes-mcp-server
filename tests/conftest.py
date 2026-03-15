@@ -2,6 +2,13 @@
 Pytest configuration and shared fixtures.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to path so tests can import app and tests modules
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 import pytest
 import pytest_asyncio
 
@@ -16,7 +23,7 @@ async def nppes_client():
 
 
 # Import stubs for easy access in tests
-from tests.stubs.nppes_responses import (
+from stubs.nppes_responses import (
     VALID_STATE_SEARCH_RESPONSE,
     EMPTY_SEARCH_RESPONSE,
     SERVER_ERROR_RESPONSE,
