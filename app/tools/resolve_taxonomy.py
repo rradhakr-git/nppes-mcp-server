@@ -31,9 +31,8 @@ async def resolve_taxonomy(
         Returns empty dict if no match found
     """
     if taxonomy_index is None:
-        from app.rag.embedder import Embedder
-        embedder = Embedder()
-        taxonomy_index = TaxonomyIndex(embedder=embedder)
+        # Create index without embedder - will use keyword search fallback
+        taxonomy_index = TaxonomyIndex(embedder=None, skip_build=False)
 
     # If code is provided, do direct lookup
     if code:

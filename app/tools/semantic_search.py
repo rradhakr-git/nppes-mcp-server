@@ -41,9 +41,8 @@ async def semantic_search(
     """
     # Initialize defaults
     if taxonomy_index is None:
-        from app.rag.embedder import Embedder
-        embedder = Embedder()
-        taxonomy_index = TaxonomyIndex(embedder=embedder)
+        # Create index without embedder - will use keyword search fallback
+        taxonomy_index = TaxonomyIndex(embedder=None, skip_build=False)
 
     if nppes_client is None:
         nppes_client = NPPESClient()

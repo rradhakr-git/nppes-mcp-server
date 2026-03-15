@@ -65,3 +65,7 @@ notes/
 
 # Project outline (internal planning doc)
 nppes_mcp_server_outline.md
+
+# Claude Code settings (local to machine)
+.claude/
+

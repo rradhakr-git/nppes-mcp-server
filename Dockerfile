@@ -1,32 +1,29 @@
 # NPPES MCP Server - Dockerfile
 # Deploy to Render.com or any Docker-compatible hosting
+#
+# Uses keyword-based taxonomy search (no ML model needed at runtime)
+# All 3 MCP tools work: search_providers, resolve_taxonomy, semantic_search
 
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies for FAISS and sentence-transformers
+# Install runtime dependencies only (no ML libraries!)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
     curl \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+# Install Python runtime deps
 COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --break-system-packages \
+    fastapi uvicorn httpx redis faiss-cpu pydantic
 
 # Copy application code
 COPY app/ ./app/
-
-# Ensure taxonomy CSV is bundled (should be in app/rag/taxonomy.csv)
-# If missing, the app will download it at startup
 
 # Expose port
 EXPOSE 8000
 
 # Run the server
-# Render.com sets PORT env var automatically
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -32,15 +32,18 @@ class TaxonomyIndex:
     FAISS-based index for NUCC taxonomy semantic search.
 
     Embeds taxonomy descriptions and provides fast similarity search.
+
+    Can use pre-built index (no ML model needed at runtime) or build on-the-fly.
     """
 
     def __init__(
         self,
-        embedder,
+        embedder=None,
         index_path: Optional[str] = None,
         dimension: int = 384,
         taxonomy_csv: Optional[str] = None,
-        skip_build: bool = False
+        skip_build: bool = False,
+        use_prebuilt: bool = True
     ):
         self.embedder = embedder
         self.index_path = index_path
@@ -52,13 +55,33 @@ class TaxonomyIndex:
         self._faiss = None
         self._taxonomies: list[dict] = []
 
+        if skip_build:
+            return
+
+        # Check for pre-built index first (no ML model needed!)
+        if use_prebuilt and index_path:
+            import faiss
+            import os as os_module
+            bin_path = f"{index_path}.bin"
+            json_path = f"{index_path}.json"
+            if os_module.path.exists(bin_path) and os_module.path.exists(json_path):
+                self._load_prebuilt_index()
+                return
+
+        # Fall back to build or load
         if not skip_build:
-            # Try to load existing index, otherwise build new one
             self._load_or_build()
 
     def _load_or_build(self):
         """Load existing index or build a new one."""
-        if self.index_path and os.path.exists(self.index_path):
+        # If no embedder, just load taxonomies from CSV (keyword search mode)
+        if self.embedder is None:
+            self._taxonomies = self._load_taxonomies_from_csv()
+            self._faiss = None  # No vector search
+            return
+
+        # Otherwise try to load or build index
+        if self.index_path and os.path.exists(f"{self.index_path}.bin"):
             self._load_index()
         else:
             self._build_index()
@@ -144,6 +167,20 @@ class TaxonomyIndex:
         with open(f"{self.index_path}.json", 'r') as f:
             self._taxonomies = json.load(f)
 
+    def _load_prebuilt_index(self):
+        """Load pre-built FAISS index (no embedder needed at runtime)."""
+        import faiss
+
+        print(f"Loading pre-built index from {self.index_path}")
+        # Load FAISS index
+        self._faiss = faiss.read_index(f"{self.index_path}.bin")
+
+        # Load taxonomy metadata
+        with open(f"{self.index_path}.json", 'r') as f:
+            self._taxonomies = json.load(f)
+
+        print(f"Loaded {len(self._taxonomies)} taxonomies from pre-built index")
+
     async def embed_query(self, text: str) -> list[float]:
         """
         Embed a query text.
@@ -165,6 +202,8 @@ class TaxonomyIndex:
         """
         Search for similar taxonomy codes.
 
+        Uses semantic search if embedder available, otherwise falls back to keyword matching.
+
         Args:
             query: Natural language query
             top_k: Number of results to return
@@ -173,8 +212,16 @@ class TaxonomyIndex:
         Returns:
             List of taxonomy dicts with similarity scores
         """
-        if not self._faiss or not self._taxonomies:
+        if not self._taxonomies:
             return []
+
+        # If no FAISS index but we have taxonomies, use keyword fallback
+        if not self._faiss:
+            return self._keyword_search(query, top_k)
+
+        # Check if embedder is available
+        if self.embedder is None:
+            return self._keyword_search(query, top_k)
 
         # Embed query
         query_embedding = np.array([await self.embed_query(query)], dtype=np.float32)
@@ -211,3 +258,49 @@ class TaxonomyIndex:
                 break
 
         return results
+
+    def _keyword_search(self, query: str, top_k: int = 5) -> list[dict]:
+        """
+        Fallback keyword-based search when ML model unavailable.
+
+        Matches query terms against taxonomy classification, specialization, and description.
+        """
+        query_lower = query.lower()
+        query_terms = query_lower.split()
+
+        results = []
+        for taxonomy in self._taxonomies:
+            score = 0.0
+
+            # Check classification
+            classification = taxonomy.get("classification", "") or ""
+            if classification.lower() in query_lower:
+                score += 1.0
+            for term in query_terms:
+                if term in classification.lower():
+                    score += 0.3
+
+            # Check specialization
+            specialization = taxonomy.get("specialization", "") or ""
+            if specialization.lower() in query_lower:
+                score += 0.8
+            for term in query_terms:
+                if term in specialization.lower():
+                    score += 0.2
+
+            # Check description
+            description = taxonomy.get("description", "") or ""
+            if description.lower() in query_lower:
+                score += 0.5
+            for term in query_terms:
+                if term in description.lower():
+                    score += 0.1
+
+            if score > 0:
+                result = dict(taxonomy)
+                result["score"] = min(score / 3.0, 1.0)  # Normalize to 0-1
+                results.append(result)
+
+        # Sort by score and return top_k
+        results.sort(key=lambda x: x["score"], reverse=True)
+        return results[:top_k]
