@@ -1,7 +1,7 @@
 # NPPES MCP Server - Dockerfile
 # Deploy to Render.com or any Docker-compatible hosting
 #
-# Uses keyword-based taxonomy search (no ML model needed at runtime)
+# Uses keyword-based taxonomy search (no ML model - fits in 512MB free tier)
 # All 3 MCP tools work: search_providers, resolve_taxonomy, semantic_search
 
 FROM python:3.11-slim
@@ -14,10 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python runtime deps
+# Install Python runtime deps (includes sentence-transformers paraphrase-MiniLM-L3-v2)
 COPY requirements.txt .
 RUN pip install --no-cache-dir --break-system-packages \
-    fastapi uvicorn httpx redis faiss-cpu pydantic
+    fastapi uvicorn httpx redis faiss-cpu pydantic sentence-transformers
 
 # Copy application code
 COPY app/ ./app/

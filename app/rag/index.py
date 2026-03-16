@@ -246,8 +246,10 @@ class TaxonomyIndex:
             if idx < 0:
                 continue
 
-            # Convert distance to similarity (0-1 range, L2 typically 0-2)
-            score = max(0.0, 1.0 - (dist / 2.0))
+            # Convert distance to similarity score
+            # L2 distance: smaller is better. Normalize using exponential decay
+            # distance 0 -> score 1, distance 1 -> score ~0.37, distance 2+ -> score ~0
+            score = float(max(0.0, 1.0 / (1.0 + dist)))
 
             if score >= min_score:
                 result = dict(self._taxonomies[idx])

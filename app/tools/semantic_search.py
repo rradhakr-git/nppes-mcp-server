@@ -41,8 +41,9 @@ async def semantic_search(
     """
     # Initialize defaults
     if taxonomy_index is None:
-        # Create index without embedder - will use keyword search fallback
-        taxonomy_index = TaxonomyIndex(embedder=None, skip_build=False)
+        from app.rag.embedder import Embedder
+        embedder = Embedder()
+        taxonomy_index = TaxonomyIndex(embedder=embedder, skip_build=False)
 
     if nppes_client is None:
         nppes_client = NPPESClient()
@@ -87,7 +88,8 @@ async def semantic_search(
 
             # Deduplicate by NPI
             for provider in providers:
-                npi = provider.get("npi")
+                # NPPES returns "number" not "npi"
+                npi = provider.get("number") or provider.get("npi")
                 if npi and npi not in seen_npis:
                     seen_npis.add(npi)
                     all_providers.append(provider)
