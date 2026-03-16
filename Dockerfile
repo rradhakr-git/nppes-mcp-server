@@ -19,8 +19,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --break-system-packages \
     fastapi uvicorn httpx redis faiss-cpu pydantic sentence-transformers
 
-# Copy application code
+# Copy application code and bundled ML model
 COPY app/ ./app/
+COPY models/ ./models/
 
 # Expose port
 EXPOSE 8000

@@ -1,12 +1,18 @@
 """
 Embedding model wrapper using sentence-transformers.
 
-Uses all-MiniLM-L6-v2 for efficient CPU-based embeddings.
+Uses paraphrase-MiniLM-L3-v2 for efficient CPU-based embeddings.
+Model is bundled locally in the Docker image.
 """
 
+import os
+from pathlib import Path
 from typing import Optional
 import numpy as np
 
+
+# Local model path (bundled in Docker at /app/models/)
+LOCAL_MODEL_PATH = Path("/app/models/paraphrase-MiniLM-L3-v2")
 
 DEFAULT_MODEL = "sentence-transformers/paraphrase-MiniLM-L3-v2"
 EMBEDDING_DIMENSION = 384
@@ -29,10 +35,15 @@ class Embedder:
         self._model = None
 
     def _load_model(self):
-        """Lazy load the transformer model."""
+        """Lazy load the transformer model from local path if available."""
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name, device=self.device)
+            # Try loading from local path first (bundled in Docker)
+            if LOCAL_MODEL_PATH.exists():
+                self._model = SentenceTransformer(str(LOCAL_MODEL_PATH), device=self.device)
+            else:
+                # Fallback to downloading from HuggingFace
+                self._model = SentenceTransformer(self.model_name, device=self.device)
 
     def embed(self, text: str) -> list[float]:
         """
