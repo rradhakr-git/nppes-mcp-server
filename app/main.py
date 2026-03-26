@@ -16,13 +16,19 @@ Environment variables:
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Optional
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field
 
+from app.rag.index import TaxonomyIndex
+from app.rag.embedder import Embedder
 from app.tools.search_providers import search_providers
 from app.tools.resolve_taxonomy import resolve_taxonomy
 from app.tools.semantic_search import semantic_search
+from app.tools.get_provider_by_npi import get_provider_by_npi
+from app.tools.validate_npi import validate_npi
+from app.tools.get_npi_for_provider import get_npi_for_provider
 
 
 # Configure logging
@@ -34,10 +40,27 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load RAG resources at startup, clean up on shutdown."""
+    # Startup: load TaxonomyIndex once
+    logger.info("Loading RAG taxonomy index at startup...")
+    embedder = Embedder()
+    app.state.rag_index = TaxonomyIndex(embedder=embedder, skip_build=False)
+    logger.info(f"RAG taxonomy index loaded with {len(app.state.rag_index._taxonomies)} taxonomies")
+
+    yield
+
+    # Shutdown: clean up
+    logger.info("Shutting down RAG resources...")
+    app.state.rag_index = None
+
+
 app = FastAPI(
     title="NPPES MCP Server",
     description="MCP server for NPPES provider registry search",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 
@@ -85,6 +108,9 @@ TOOL_REGISTRY = {
     "search_providers": search_providers,
     "resolve_taxonomy": resolve_taxonomy,
     "semantic_search": semantic_search,
+    "get_provider_by_npi": get_provider_by_npi,
+    "validate_npi": validate_npi,
+    "get_npi_for_provider": get_npi_for_provider,
 }
 
 
@@ -169,6 +195,59 @@ async def handle_mcp_request(request: Request):
             "id": request_id,
             "result": {
                 "content": result if isinstance(result, list) else [result]
+            }
+        }
+
+    # =============================================================================
+    # Standard MCP Methods
+    # =============================================================================
+
+    # ping - health check
+    if method == "ping":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {}
+        }
+
+    # initialize - protocol handshake
+    if method == "initialize":
+        client_info = params.get("clientInfo", {}) if params else {}
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": "NPPES MCP Server",
+                    "version": "1.0.0"
+                }
+            }
+        }
+
+    # tools/list - return available tools
+    if method == "tools/list":
+        tools = []
+        for name, func in TOOL_REGISTRY.items():
+            # Extract docstring for description
+            doc = func.__doc__ or ""
+            description = doc.strip().split("\n")[0] if doc else ""
+            tools.append({
+                "name": name,
+                "description": description,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            })
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "tools": tools
             }
         }
 

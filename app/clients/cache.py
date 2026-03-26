@@ -59,7 +59,8 @@ class CacheClient:
     async def get_or_fetch(
         self,
         key: str,
-        fetch_fn: Callable[[], Awaitable[list[dict]]]
+        fetch_fn: Callable[[], Awaitable[list[dict]]],
+        ttl: Optional[int] = None
     ) -> list[dict]:
         """
         Get value from cache, or fetch from source if missing/expired.
@@ -69,6 +70,7 @@ class CacheClient:
         Args:
             key: Cache key
             fetch_fn: Async function to call if cache miss
+            ttl: Optional TTL override in seconds
 
         Returns:
             List of provider dicts
@@ -84,8 +86,9 @@ class CacheClient:
             # Cache miss - call fetch_fn
             result = await fetch_fn()
 
-            # Store in cache with TTL
-            await client.set(key, json.dumps(result), ex=self.ttl)
+            # Store in cache with TTL (use override or default)
+            cache_ttl = ttl or self.ttl
+            await client.set(key, json.dumps(result), ex=cache_ttl)
 
             return result
         except Exception:
@@ -144,6 +147,30 @@ class CacheClient:
         key_hash = hashlib.md5(param_str.encode()).hexdigest()[:12]
 
         return f"{self.key_prefix}:search:{key_hash}"
+
+    def build_npi_key(self, npi: str) -> str:
+        """
+        Build a cache key for a single NPI lookup.
+
+        Args:
+            npi: 10-digit NPI number
+
+        Returns:
+            Cache key string
+        """
+        return f"{self.key_prefix}:npi:{npi}"
+
+    def build_validate_key(self, npi: str) -> str:
+        """
+        Build a cache key for NPI validation.
+
+        Args:
+            npi: 10-digit NPI number
+
+        Returns:
+            Cache key string (distinct from npi: lookup)
+        """
+        return f"{self.key_prefix}:validate:{npi}"
 
     async def close(self):
         """Close the Redis connection."""

@@ -157,3 +157,86 @@ async def test_expired_entry_triggers_refresh():
     # Second call - cache is expired (get returns None), should fetch again
     result2 = await cache.get_or_fetch("nppes:search:state=CT", fetch_fn)
     assert result2 == [{"npi": "SECOND_RESULT"}], "Expired entries should trigger fetch_fn call"
+
+
+# =============================================================================
+# Test: build_npi_key_format
+# =============================================================================
+def test_build_npi_key_format():
+    """build_npi_key returns correct format."""
+    cache = CacheClient()
+
+    key = cache.build_npi_key("1234567893")
+
+    assert "npi:1234567893" in key
+    assert key == cache.build_npi_key("1234567893")  # Deterministic
+
+
+# =============================================================================
+# Test: build_validate_key_format
+# =============================================================================
+def test_build_validate_key_format():
+    """build_validate_key returns correct format distinct from npi key."""
+    cache = CacheClient()
+
+    npi_key = cache.build_npi_key("1234567893")
+    validate_key = cache.build_validate_key("1234567893")
+
+    assert "validate:1234567893" in validate_key
+    assert npi_key != validate_key  # Different key spaces
+
+
+# =============================================================================
+# Test: get_or_fetch_with_ttl_override
+# =============================================================================
+@pytest.mark.asyncio
+async def test_get_or_fetch_with_ttl_override():
+    """get_or_fetch uses TTL override when provided."""
+    captured_ttl = None
+
+    async def mock_get(key: str):
+        return None
+
+    async def mock_set(key: str, value: str, ex: int = None):
+        nonlocal captured_ttl
+        captured_ttl = ex
+
+    async def fetch_fn():
+        return [{"npi": "1234567890"}]
+
+    mock_client = MagicMock()
+    mock_client.get = mock_get
+    mock_client.set = mock_set
+
+    cache = CacheClient(client=mock_client, ttl=3600)
+
+    await cache.get_or_fetch("test:key", fetch_fn, ttl=7200)
+
+    assert captured_ttl == 7200, "Should use TTL override instead of default"
+
+
+# =============================================================================
+# Test: cache_graceful_degradation_on_redis_error
+# =============================================================================
+@pytest.mark.asyncio
+async def test_cache_graceful_degradation_on_redis_error():
+    """When Redis fails, get_or_fetch falls back to direct fetch."""
+    fetch_called = False
+
+    async def mock_get(key: str):
+        raise Exception("Redis connection failed")
+
+    async def fetch_fn():
+        nonlocal fetch_called
+        fetch_called = True
+        return [{"npi": "fallback"}]
+
+    mock_client = MagicMock()
+    mock_client.get = mock_get
+
+    cache = CacheClient(client=mock_client)
+
+    result = await cache.get_or_fetch("test:key", fetch_fn)
+
+    assert fetch_called is True
+    assert result == [{"npi": "fallback"}]

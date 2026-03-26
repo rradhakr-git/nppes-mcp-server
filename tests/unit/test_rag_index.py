@@ -147,3 +147,184 @@ async def test_low_similarity_score_filtered_out():
 
     assert len(results) == 1
     assert results[0]["code"] == "HIGH_SIM"
+
+
+# =============================================================================
+# Phase A: RAG Lifespan Fix Tests (TDD - Red)
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_taxonomy_index_build_is_idempotent():
+    """
+    Test that TaxonomyIndex.build() (via _load_or_build) is safe to call multiple times.
+
+    This ensures that even if build() is called twice (e.g., edge case in lifespan),
+    the index remains consistent.
+    """
+    mock_embedder = MagicMock()
+    mock_embedder.embed = MagicMock(return_value=[0.1] * 384)
+    mock_embedder.embed_batch = MagicMock(return_value=[[0.1] * 384] * 3)
+
+    index = TaxonomyIndex(embedder=mock_embedder, dimension=384, skip_build=True)
+
+    # Manually set up index data
+    index._taxonomies = [
+        {"code": "207RC0000X", "classification": "Cardiology", "specialization": "", "description": ""}
+    ]
+
+    # Mock FAISS index
+    class MockFaissIndex:
+        def __init__(self):
+            self.dimension = 384
+            self._vectors = []
+
+        def add(self, vectors):
+            self._vectors.extend(vectors)
+
+        def search(self, query_vec, k):
+            return ([0.5], [[0]])
+
+    # Build twice - should not cause issues
+    index._faiss = MockFaissIndex()
+
+    # First call to internal build
+    index._load_or_build()
+
+    # Store reference to first FAISS index
+    first_faiss = index._faiss
+    first_taxonomies = list(index._taxonomies)
+
+    # Second call - should be safe (idempotent)
+    index._load_or_build()
+
+    # Should be the same objects (not recreated)
+    assert index._faiss is first_faiss
+    assert index._taxonomies == first_taxonomies
+
+
+# =============================================================================
+# Test: keyword_search_finds_matches
+# =============================================================================
+@pytest.mark.asyncio
+async def test_keyword_search_finds_matches():
+    """Test keyword search fallback finds matches in taxonomy."""
+    mock_embedder = MagicMock()
+    mock_embedder.embed = MagicMock(return_value=[0.1] * 384)
+
+    index = TaxonomyIndex(embedder=None, dimension=384, skip_build=True)
+
+    # Pre-populate with taxonomies (no embedder = keyword search mode)
+    index._taxonomies = [
+        {"code": "207RC0000X", "classification": "Cardiovascular Disease", "specialization": "Interventional", "description": "Heart procedures"},
+        {"code": "207Q00000X", "classification": "Family Medicine", "specialization": "", "description": ""}
+    ]
+    index._faiss = None  # Force keyword search
+
+    results = await index.search("heart doctor", top_k=5)
+
+    # Should find at least one result (cardiovascular has "heart" in description)
+    assert len(results) >= 1
+    codes = [r["code"] for r in results]
+    assert "207RC0000X" in codes
+
+
+# =============================================================================
+# Test: keyword_search_returns_results_for_partial_match
+# =============================================================================
+@pytest.mark.asyncio
+async def test_keyword_search_returns_results_for_partial_match():
+    """Test keyword search returns results for partial matches."""
+    index = TaxonomyIndex(embedder=None, skip_build=True)
+
+    index._taxonomies = [
+        {"code": "207Q00000X", "classification": "Family Medicine", "specialization": "", "description": ""}
+    ]
+    index._faiss = None
+
+    # "family" matches "Family Medicine"
+    results = await index.search("family", top_k=5)
+
+    assert len(results) >= 1
+    assert results[0]["code"] == "207Q00000X"
+
+
+# =============================================================================
+# Test: search_respects_min_score_threshold
+# =============================================================================
+@pytest.mark.asyncio
+async def test_search_respects_min_score_threshold():
+    """Test that search filters results by min_score."""
+    mock_embedder = MagicMock()
+    mock_embedder.embed = MagicMock(return_value=[0.1] * 384)
+
+    index = TaxonomyIndex(embedder=mock_embedder, dimension=384, skip_build=True)
+
+    index._taxonomies = [
+        {"code": "HIGH_SIM", "classification": "Cardiology"},
+        {"code": "LOW_SIM", "classification": "Unrelated"}
+    ]
+
+    # Mock FAISS returning both with different distances
+    class MockFaissIndex:
+        def search(self, query_vec, k):
+            # High sim (0.1), Low sim (1.5)
+            return ([0.1, 1.5], [[0, 1]])
+
+    index._faiss = MockFaissIndex()
+
+    results = await index.search("heart", top_k=2, min_score=0.5)
+
+    # Should only return high similarity result
+    assert len(results) == 1
+    assert results[0]["code"] == "HIGH_SIM"
+
+
+# =============================================================================
+# Test: search_returns_empty_when_no_taxonomies
+# =============================================================================
+@pytest.mark.asyncio
+async def test_search_returns_empty_when_no_taxonomies():
+    """Test search returns empty list when no taxonomies loaded."""
+    index = TaxonomyIndex(skip_build=True)
+
+    index._taxonomies = []
+
+    results = await index.search("test query")
+
+    assert results == []
+
+
+# =============================================================================
+# Test: loads_taxonomies_from_csv
+# =============================================================================
+def test_loads_taxonomies_from_csv():
+    """Test that TaxonomyIndex loads from CSV when available."""
+    import tempfile
+    import csv
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        writer = csv.DictWriter(f, fieldnames=["Code", "Classification", "Specialization", "Description"])
+        writer.writeheader()
+        writer.writerow({
+            "Code": "207Q00000X",
+            "Classification": "Family Medicine",
+            "Specialization": "",
+            "Description": "Primary care"
+        })
+        csv_path = f.name
+
+    try:
+        # Create index without skip_build but with no embedder (will use keyword mode)
+        index = TaxonomyIndex(
+            embedder=None,
+            taxonomy_csv=csv_path,
+            skip_build=False
+        )
+
+        # Should have loaded taxonomies
+        assert len(index._taxonomies) >= 1
+        codes = [t["code"] for t in index._taxonomies]
+        assert "207Q00000X" in codes
+    finally:
+        import os
+        os.unlink(csv_path)

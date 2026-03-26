@@ -6,6 +6,7 @@ Combines RAG-based taxonomy search with NPPES provider search.
 
 from typing import Optional
 
+from fastapi import Request
 from app.rag.index import TaxonomyIndex
 from app.clients.cache import CacheClient
 from app.clients.nppes import NPPESClient, Provider
@@ -18,6 +19,7 @@ async def semantic_search(
     taxonomy_index: Optional[TaxonomyIndex] = None,
     nppes_client: Optional[NPPESClient] = None,
     cache: Optional[CacheClient] = None,
+    request: Optional[Request] = None,
     top_k: int = 5,
     min_score: float = 0.0
 ) -> list[Provider]:
@@ -30,20 +32,26 @@ async def semantic_search(
         query: Natural language query (e.g., "cardiologist in Connecticut")
         state: Optional state filter
         city: Optional city filter
-        taxonomy_index: TaxonomyIndex instance
+        taxonomy_index: TaxonomyIndex instance (for testing)
         nppes_client: NPPESClient instance
         cache: CacheClient instance
+        request: FastAPI Request (to access app.state.rag_index)
         top_k: Number of taxonomy codes to search
         min_score: Minimum similarity score for taxonomy match
 
     Returns:
         List of provider dictionaries
     """
-    # Initialize defaults
+    # Initialize defaults - prefer app.state.rag_index if available
     if taxonomy_index is None:
-        from app.rag.embedder import Embedder
-        embedder = Embedder()
-        taxonomy_index = TaxonomyIndex(embedder=embedder, skip_build=False)
+        # Check if we have access to app.state (not available in unit tests)
+        if request is not None and hasattr(request.app.state, 'rag_index'):
+            taxonomy_index = request.app.state.rag_index
+        else:
+            # Fallback for backward compatibility in tests
+            from app.rag.embedder import Embedder
+            embedder = Embedder()
+            taxonomy_index = TaxonomyIndex(embedder=embedder, skip_build=False)
 
     if nppes_client is None:
         nppes_client = NPPESClient()

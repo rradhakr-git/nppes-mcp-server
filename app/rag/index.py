@@ -73,7 +73,11 @@ class TaxonomyIndex:
             self._load_or_build()
 
     def _load_or_build(self):
-        """Load existing index or build a new one."""
+        """Load existing index or build a new one. Idempotent - safe to call multiple times."""
+        # If already built with taxonomies, skip
+        if self._taxonomies and self._faiss is not None:
+            return
+
         # If no embedder, just load taxonomies from CSV (keyword search mode)
         if self.embedder is None:
             self._taxonomies = self._load_taxonomies_from_csv()

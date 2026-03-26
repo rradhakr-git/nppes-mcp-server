@@ -161,6 +161,130 @@ class NPPESClient:
                     break
         return filtered
 
+    async def get_by_npi(self, npi: str) -> Optional[Provider]:
+        """
+        Get a single provider by NPI number.
+
+        Args:
+            npi: 10-digit National Provider Identifier
+
+        Returns:
+            Provider dictionary if found, None otherwise
+        """
+        params = {"version": API_VERSION, "number": npi}
+
+        try:
+            response = await self._client.get(NPI_ENDPOINT, params=params)
+
+            if response.status_code == HTTP_NOT_FOUND:
+                return None
+
+            response.raise_for_status()
+            data = response.json() if response.content else {}
+
+            # Check for errors in response
+            if "Errors" in data and data["Errors"]:
+                return None
+
+            results = data.get("results")
+            if isinstance(results, list) and len(results) > 0:
+                return results[0]
+
+            return None
+
+        except httpx.HTTPError:
+            return None
+
+    async def validate(self, npi: str) -> dict:
+        """
+        Validate an NPI number.
+
+        Checks both format validity and registry existence.
+
+        Args:
+            npi: 10-digit National Provider Identifier
+
+        Returns:
+            Dictionary with 'valid' bool, 'npi' string, and optional 'error' message
+        """
+        # First validate format (NPI must be 10 digits)
+        if not npi or not npi.isdigit() or len(npi) != 10:
+            return {"valid": False, "npi": npi, "error": "Invalid NPI format - must be 10 digits"}
+
+        # Check Luhn algorithm for NPI checksum
+        if not self._luhn_check(npi):
+            return {"valid": False, "npi": npi, "error": "Invalid NPI checksum"}
+
+        # Check if NPI exists in registry
+        provider = await self.get_by_npi(npi)
+        if provider is None:
+            return {"valid": False, "npi": npi, "error": "NPI not found in registry"}
+
+        return {"valid": True, "npi": npi}
+
+    def _luhn_check(self, npi: str) -> bool:
+        """
+        Validate NPI using ISO 7064 Mod 97-10.
+
+        The NPI check digit is calculated so that (NPI * 100 + 24) mod 97 = 1.
+
+        Args:
+            npi: 10-digit NPI string
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if len(npi) != 10 or not npi.isdigit():
+            return False
+
+        # NPI checksum: (NPI * 100 + 24) % 97 should equal 1
+        try:
+            npi_int = int(npi)
+            return (npi_int * 100 + 24) % 97 == 1
+        except (ValueError, OverflowError):
+            return False
+
+    async def search_by_name_and_fields(
+        self,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        organization_name: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
+        zip_code: Optional[str] = None,
+        specialty: Optional[str] = None,
+        limit: int = 10
+    ) -> list[dict]:
+        """
+        Search for providers by name and other fields.
+
+        Provides more granular control than the basic search method.
+
+        Args:
+            first_name: Provider first name
+            last_name: Provider last name
+            organization_name: Organization name (for facilities)
+            city: City filter
+            state: Two-letter state code
+            zip_code: ZIP code filter
+            specialty: Taxonomy code filter
+            limit: Maximum results to return
+
+        Returns:
+            List of provider dictionaries
+        """
+        # Require at least one search parameter
+        if not any([first_name, last_name, organization_name, city, state, zip_code, specialty]):
+            return []
+
+        return await self.search(
+            name=first_name or last_name,
+            city=city,
+            state=state,
+            specialty=specialty,
+            limit=limit
+        )
+
     async def close(self):
         """Close the HTTP client."""
         await self._client.aclose()
