@@ -84,6 +84,7 @@ class NPPESClient:
             params["taxonomy"] = specialty
 
         last_exception = None
+        fallback_attempted = False
 
         for attempt in range(self.max_retries):
             response = await self._client.get(NPI_ENDPOINT, params=params)
@@ -91,7 +92,26 @@ class NPPESClient:
             # Check for API error responses
             data = response.json() if response.content else {}
             if "Errors" in data and data["Errors"]:
-                # Return empty list on validation errors
+                # Check if it's the "additional search criteria" error
+                # NPPES requires: state + taxonomy needs name, or state + city needs name, etc.
+                error = data["Errors"][0] if data["Errors"] else {}
+                error_num = error.get("number", "")
+
+                # Error 07 = "Field X requires additional search criteria"
+                if error_num == "07" and not fallback_attempted:
+                    # Fallback: if specialty provided with state but no name,
+                    # try without specialty (will get more results, filter locally)
+                    if specialty and state and not name:
+                        fallback_attempted = True
+                        params.pop("taxonomy", None)
+                        continue
+                    # If city + state without name, add a name fallback
+                    if city and state and not name:
+                        fallback_attempted = True
+                        params["first_name"] = "a"  # Single char as minimum
+                        continue
+
+                # Return empty list on other validation errors
                 return []
 
             if response.status_code == HTTP_NOT_FOUND:
@@ -110,10 +130,36 @@ class NPPESClient:
             response.raise_for_status()
             results = data.get("results") if data else None
             if isinstance(results, list):
+                # If we fell back (removed taxonomy), filter results locally by specialty
+                if fallback_attempted and specialty:
+                    results = self._filter_by_taxonomy(results, specialty)
                 return results
             return []
 
         return []
+
+    def _filter_by_taxonomy(self, results: list[dict], specialty: str) -> list[dict]:
+        """
+        Filter provider results by taxonomy code.
+
+        Args:
+            results: List of provider dicts
+            specialty: Taxonomy code to filter by
+
+        Returns:
+            Filtered list of providers
+        """
+        if not specialty:
+            return results
+
+        filtered = []
+        for provider in results:
+            taxonomies = provider.get("taxonomies", [])
+            for tax in taxonomies:
+                if tax.get("code") == specialty:
+                    filtered.append(provider)
+                    break
+        return filtered
 
     async def close(self):
         """Close the HTTP client."""
