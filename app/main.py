@@ -177,6 +177,11 @@ async def handle_mcp_request(request: Request):
         # Get and call the tool
         tool_func = TOOL_REGISTRY[tool_name]
 
+        # Pass request to tools that need access to app.state (for RAG index)
+        # Only pass to tools that accept 'request' parameter
+        if tool_name in ("semantic_search", "resolve_taxonomy"):
+            tool_args["request"] = request
+
         try:
             result = await tool_func(**tool_args)
         except Exception as e:

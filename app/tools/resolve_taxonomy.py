@@ -6,6 +6,7 @@ Resolves taxonomy codes or performs semantic search over taxonomy descriptions.
 
 from typing import Optional
 
+from fastapi import Request
 from app.rag.index import TaxonomyIndex
 
 
@@ -13,6 +14,7 @@ async def resolve_taxonomy(
     code: Optional[str] = None,
     query: Optional[str] = None,
     taxonomy_index: Optional[TaxonomyIndex] = None,
+    request: Optional[Request] = None,
     top_k: int = 5,
     min_score: float = 0.0
 ) -> dict:
@@ -22,7 +24,8 @@ async def resolve_taxonomy(
     Args:
         code: Specific taxonomy code (e.g., "207Q00000X")
         query: Natural language query (e.g., "heart doctor")
-        taxonomy_index: TaxonomyIndex instance
+        taxonomy_index: TaxonomyIndex instance (for testing)
+        request: FastAPI Request (to access app.state.rag_index)
         top_k: Number of results for semantic search
         min_score: Minimum similarity score for semantic search
 
@@ -31,9 +34,14 @@ async def resolve_taxonomy(
         Returns empty dict if no match found
     """
     if taxonomy_index is None:
-        from app.rag.embedder import Embedder
-        embedder = Embedder()
-        taxonomy_index = TaxonomyIndex(embedder=embedder, skip_build=False)
+        # Check if we have access to app.state (loaded at startup)
+        if request is not None and hasattr(request.app.state, 'rag_index'):
+            taxonomy_index = request.app.state.rag_index
+        else:
+            # Fallback for backward compatibility in tests
+            from app.rag.embedder import Embedder
+            embedder = Embedder()
+            taxonomy_index = TaxonomyIndex(embedder=embedder, skip_build=False)
 
     # If code is provided, do direct lookup
     if code:
