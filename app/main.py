@@ -14,10 +14,12 @@ Environment variables:
     PORT: Server port (default: 8000)
 """
 
+import inspect
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any, Optional, get_type_hints
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field
 
@@ -38,6 +40,105 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def parse_docstring_params(func) -> dict[str, str]:
+    """
+    Parse parameter descriptions from Google-style docstring.
+
+    Args:
+        func: Function with docstring containing Args section
+
+    Returns:
+        Dict mapping parameter names to their descriptions
+    """
+    doc = func.__doc__ or ""
+    params = {}
+
+    # Find Args section
+    args_match = re.search(r'Args:\s*\n(.+?)(?:\n\s*Returns:|\n\s*Raises:|\Z)', doc, re.DOTALL)
+    if not args_match:
+        return params
+
+    args_section = args_match.group(1)
+    lines = args_section.split('\n')
+
+    current_param = None
+    current_desc = []
+
+    for line in lines:
+        # Check for parameter definition (param_name: description or param_name: type - description)
+        param_match = re.match(r'\s*(\w+)\s*:\s*(.+)', line)
+        if param_match:
+            # Save previous param if exists
+            if current_param:
+                params[current_param] = ' '.join(current_desc).strip()
+            current_param = param_match.group(1)
+            # Extract description, handling type annotations
+            desc = param_match.group(2)
+            # Remove type annotation prefix if present (e.g., "Provider name")
+            desc = re.sub(r'^[\w\[\]|,.\s]+\s*-\s*', '', desc)
+            current_desc = [desc]
+        elif current_param and line.strip().startswith('-'):
+            # Continuation line (Google style sometimes uses this)
+            desc = line.strip().lstrip('-').strip()
+            current_desc.append(desc)
+        elif current_param and line.strip() and not line.strip().startswith('Args:') and not line.strip().startswith('Returns:'):
+            # Continuation of description
+            current_desc.append(line.strip())
+
+    # Save last param
+    if current_param:
+        params[current_param] = ' '.join(current_desc).strip()
+
+    return params
+
+
+# Parameter metadata for enhanced documentation
+TOOL_PARAMETER_DOCS = {
+    "search_providers": {
+        "name": "Provider first or last name",
+        "city": "City name filter (e.g., 'New Haven')",
+        "state": "Two-letter state code (e.g., 'CT', 'CA', 'NY')",
+        "specialty": "Taxonomy code or specialty name (e.g., 'Cardiology', '207Q00000X')",
+        "limit": "Maximum results to return (default: 10)"
+    },
+    "resolve_taxonomy": {
+        "code": "Specific taxonomy code (e.g., '207Q00000X')",
+        "query": "Natural language query (e.g., 'heart doctor', 'pediatrician')",
+        "top_k": "Number of results for semantic search (default: 5)",
+        "min_score": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+    },
+    "semantic_search": {
+        "query": "Natural language query (e.g., 'cardiologist in Connecticut')",
+        "state": "Optional state filter (2-letter code)",
+        "city": "Optional city filter",
+        "top_k": "Number of taxonomy codes to search (default: 5)",
+        "min_score": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+    },
+    "get_provider_by_npi": {
+        "npi": "10-digit National Provider Identifier (e.g., '1000000023')"
+    },
+    "validate_npi": {
+        "npi": "10-digit National Provider Identifier to validate"
+    },
+    "get_npi_for_provider": {
+        "first_name": "Provider first name",
+        "last_name": "Provider last name",
+        "organization_name": "Organization/facility name (for hospitals, clinics)",
+        "city": "City filter",
+        "state": "State filter (2-letter code)",
+        "zip_code": "ZIP code filter (5 digits or ZIP+4)"
+    }
+}
+
+
+# Parameter validation patterns
+PARAMETER_PATTERNS = {
+    "npi": {"pattern": "^[0-9]{10}$", "description": "Must be exactly 10 digits"},
+    "state": {"pattern": "^[A-Z]{2}$", "description": "Two uppercase letters"},
+    "zip_code": {"pattern": "^[0-9]{5}(-[0-9]{4})?$", "description": "5 digits or ZIP+4 format"},
+}
 
 
 @asynccontextmanager
@@ -233,19 +334,67 @@ async def handle_mcp_request(request: Request):
             }
         }
 
-    # tools/list - return available tools
+    # tools/list - return available tools with parameter info
     if method == "tools/list":
         tools = []
         for name, func in TOOL_REGISTRY.items():
             # Extract docstring for description
             doc = func.__doc__ or ""
             description = doc.strip().split("\n")[0] if doc else ""
+
+            # Extract parameters using inspect
+            sig = inspect.signature(func)
+            properties = {}
+            required = []
+
+            # Get parameter docs from function docstring
+            docstring_params = parse_docstring_params(func)
+            tool_param_docs = TOOL_PARAMETER_DOCS.get(name, {})
+
+            for param_name, param in sig.parameters.items():
+                # Skip internal/testing params
+                if param_name in ("nppes_client", "cache", "taxonomy_index", "request"):
+                    continue
+
+                param_info = {}
+                # Get type annotation
+                if param.annotation != inspect.Parameter.empty:
+                    param_type = param.annotation
+                    if hasattr(param_type, "__name__"):
+                        param_info["type"] = param_type.__name__
+                    elif hasattr(param_type, "_name"):  # Generic types like Optional
+                        param_info["type"] = str(param_type)
+
+                # Add description from metadata or parse docstring
+                description = tool_param_docs.get(param_name) or docstring_params.get(param_name)
+                if description:
+                    param_info["description"] = description
+
+                # Add validation pattern if available
+                if param_name in PARAMETER_PATTERNS:
+                    param_info["pattern"] = PARAMETER_PATTERNS[param_name]["pattern"]
+                    if "description" in param_info:
+                        param_info["description"] += f" ({PARAMETER_PATTERNS[param_name]['description']})"
+                    else:
+                        param_info["description"] = PARAMETER_PATTERNS[param_name]["description"]
+
+                # Check if has default (optional) or no default (required)
+                if param.default != inspect.Parameter.empty:
+                    param_info["optional"] = True
+                    if param.default is not None and param.default != ...:  # Skip sentinel values
+                        param_info["default"] = param.default
+                else:
+                    required.append(param_name)
+
+                properties[param_name] = param_info
+
             tools.append({
                 "name": name,
                 "description": description,
                 "inputSchema": {
                     "type": "object",
-                    "properties": {}
+                    "properties": properties,
+                    "required": required if required else None
                 }
             })
         return {

@@ -379,3 +379,409 @@ def test_root_endpoint_returns_info():
     data = response.json()
     assert data["name"] == "NPPES MCP Server"
     assert "/mcp" in data["mcp_endpoint"]
+
+
+# =============================================================================
+# Test: tools/list includes parameter descriptions
+# =============================================================================
+def test_mcp_tools_list_includes_param_descriptions():
+    """When I call /mcp with method='tools/list', each tool parameter
+    includes a helpful description."""
+    from app.main import app
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+
+    result = data["result"]
+    tools = {t["name"]: t for t in result["tools"]}
+
+    # Check search_providers has descriptions
+    search_tool = tools["search_providers"]
+    props = search_tool["inputSchema"]["properties"]
+
+    # Each parameter should have a description
+    if "state" in props:
+        assert "description" in props["state"]
+        assert "Two-letter" in props["state"]["description"] or "state code" in props["state"]["description"]
+
+    if "name" in props:
+        assert "description" in props["name"]
+
+
+# =============================================================================
+# Test: tools/list includes validation patterns for key parameters
+# =============================================================================
+def test_mcp_tools_list_includes_validation_patterns():
+    """When I call /mcp with method='tools/list', NPI and state parameters
+    include regex patterns for validation."""
+    from app.main import app
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+
+    result = data["result"]
+    tools = {t["name"]: t for t in result["tools"]}
+
+    # Check validate_npi has NPI pattern
+    validate_tool = tools["validate_npi"]
+    npi_props = validate_tool["inputSchema"]["properties"]["npi"]
+    assert "pattern" in npi_props
+    assert npi_props["pattern"] == "^[0-9]{10}$"
+    assert "description" in npi_props
+    assert "10 digits" in npi_props["description"]
+
+    # Check search_providers has state pattern
+    search_tool = tools["search_providers"]
+    props = search_tool["inputSchema"]["properties"]
+    if "state" in props:
+        assert "pattern" in props["state"]
+        assert props["state"]["pattern"] == "^[A-Z]{2}$"
+
+
+# =============================================================================
+# Test: tools/list correctly identifies required vs optional parameters
+# =============================================================================
+def test_mcp_tools_list_marks_required_params():
+    """When I call /mcp with method='tools/list', required parameters
+    are listed separately and optional params have 'optional: true'."""
+    from app.main import app
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+
+    result = data["result"]
+    tools = {t["name"]: t for t in result["tools"]}
+
+    # validate_npi should have 'npi' as required
+    validate_tool = tools["validate_npi"]
+    assert validate_tool["inputSchema"]["required"] == ["npi"]
+    props = validate_tool["inputSchema"]["properties"]
+    assert "optional" not in props["npi"] or props["npi"]["optional"] is False
+
+    # search_providers should have no required params (all optional with defaults)
+    search_tool = tools["search_providers"]
+    props = search_tool["inputSchema"]["properties"]
+    if search_tool["inputSchema"]["required"] is not None:
+        # If there are required params, check they don't have defaults
+        for param_name in search_tool["inputSchema"]["required"]:
+            if param_name in props:
+                assert "default" not in props[param_name]
+
+
+# =============================================================================
+# Test: Invalid JSON body returns 400
+# =============================================================================
+def test_mcp_invalid_json_returns_400():
+    """When I send a request with invalid JSON to /mcp, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.post(
+        "/mcp",
+        content=b"not valid json",
+        headers={"Content-Type": "application/json"}
+    )
+
+    assert response.status_code == 400
+    assert "Invalid JSON" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: Missing jsonrpc field returns 400
+# =============================================================================
+def test_mcp_missing_jsonrpc_field_returns_400():
+    """When I call /mcp without the jsonrpc field, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "id": 1,
+        "method": "ping",
+        "params": {}
+    })
+
+    assert response.status_code == 400
+    assert "jsonrpc" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: Invalid jsonrpc version returns 400
+# =============================================================================
+def test_mcp_invalid_jsonrpc_version_returns_400():
+    """When I call /mcp with wrong jsonrpc version, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "1.0",
+        "id": 1,
+        "method": "ping",
+        "params": {}
+    })
+
+    assert response.status_code == 400
+    assert "Invalid jsonrpc version" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: Missing method field returns 400
+# =============================================================================
+def test_mcp_missing_method_returns_400():
+    """When I call /mcp without a method field, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1
+    })
+
+    assert response.status_code == 400
+    assert "Missing method" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: tools/call missing params returns 400
+# =============================================================================
+def test_mcp_tools_call_missing_params_returns_400():
+    """When I call /mcp with method='tools/call' but no params, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call"
+    })
+
+    assert response.status_code == 400
+    assert "Missing params" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: tools/call with non-dict params returns 400
+# =============================================================================
+def test_mcp_tools_call_params_not_object_returns_400():
+    """When I call /mcp with method='tools/call' and params as array, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": ["invalid"]
+    })
+
+    assert response.status_code == 400
+    assert "Params must be an object" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: tools/call missing tool name returns 400
+# =============================================================================
+def test_mcp_tools_call_missing_tool_name_returns_400():
+    """When I call /mcp with method='tools/call' but no tool name, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"arguments": {}}
+    })
+
+    assert response.status_code == 400
+    assert "Missing tool name" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: tools/call missing arguments returns 400
+# =============================================================================
+def test_mcp_tools_call_missing_arguments_returns_400():
+    """When I call /mcp with method='tools/call' but no arguments, it returns 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {"name": "search_providers"}
+    })
+
+    assert response.status_code == 400
+    assert "arguments" in response.json()["detail"]
+
+
+# =============================================================================
+# Test: Unknown tool returns error envelope (not HTTP error)
+# =============================================================================
+def test_mcp_unknown_tool_returns_error_envelope():
+    """When I call /mcp with a non-existent tool, it returns JSON-RPC error, not 400."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 42,
+        "method": "tools/call",
+        "params": {
+            "name": "nonexistent_tool",
+            "arguments": {}
+        }
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "error" in data
+    assert data["id"] == 42
+    assert data["error"]["code"] == -32601
+    assert "UNKNOWN_TOOL" in data["error"]["message"]
+
+
+# =============================================================================
+# Test: parse_docstring_params handles function without Args section
+# =============================================================================
+def test_parse_docstring_params_no_args_section():
+    """When a function has no Args section, parse_docstring_params returns empty dict."""
+    from app.main import parse_docstring_params
+
+    def func_no_args():
+        """Simple function with no Args."""
+        pass
+
+    result = parse_docstring_params(func_no_args)
+    assert result == {}
+
+
+# =============================================================================
+# Test: parse_docstring_params handles function with Args section
+# =============================================================================
+def test_parse_docstring_params_with_args():
+    """When a function has Args section, parse_docstring_params extracts params."""
+    from app.main import parse_docstring_params
+
+    def func_with_args():
+        """Function with Args.
+
+        Args:
+            name: Provider name
+            city: City filter
+        """
+        pass
+
+    result = parse_docstring_params(func_with_args)
+    assert "name" in result
+    assert "Provider name" in result["name"]
+    assert "city" in result
+    assert "City filter" in result["city"]
+
+
+# =============================================================================
+# Test: parse_docstring_params with type annotations
+# =============================================================================
+def test_parse_docstring_params_with_type_annotations():
+    """When Args section has type annotations, they are stripped."""
+    from app.main import parse_docstring_params
+
+    def func_with_types():
+        """Function with typed Args.
+
+        Args:
+            name: str - Provider name
+            npi: int - NPI number
+        """
+        pass
+
+    result = parse_docstring_params(func_with_types)
+    assert "name" in result
+    assert "str - " not in result["name"]
+    assert "Provider name" in result["name"]
+
+
+# =============================================================================
+# Test: tools/list includes type annotations for parameters
+# =============================================================================
+def test_mcp_tools_list_includes_type_annotations():
+    """When I call /mcp with method='tools/list', parameters include type info."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+        "params": {}
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+
+    result = data["result"]
+    tools = {t["name"]: t for t in result["tools"]}
+
+    # Check validate_npi has type annotation for npi
+    validate_tool = tools["validate_npi"]
+    props = validate_tool["inputSchema"]["properties"]
+    assert "npi" in props
+    assert "type" in props["npi"]
+
+
+# =============================================================================
+# Test: Unknown method returns error envelope (not HTTP error)
+# =============================================================================
+def test_mcp_unknown_method_returns_error_envelope():
+    """When I call /mcp with an unknown method, it returns JSON-RPC error envelope."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "unknown_method",
+        "params": {}
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "error" in data
+    assert data["id"] == 99
+    assert data["error"]["code"] == -32601
+    assert "Unknown method" in data["error"]["message"]
