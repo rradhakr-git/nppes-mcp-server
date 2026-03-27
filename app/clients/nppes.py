@@ -211,16 +211,18 @@ class NPPESClient:
         if not npi or not npi.isdigit() or len(npi) != 10:
             return {"valid": False, "npi": npi, "error": "Invalid NPI format - must be 10 digits"}
 
-        # Check Luhn algorithm for NPI checksum
+        # Check if NPI exists in registry first (authoritative source)
+        # Some legacy NPIs may not pass checksum but are still valid in registry
+        provider = await self.get_by_npi(npi)
+        if provider is not None:
+            return {"valid": True, "npi": npi}
+
+        # If not in registry, validate checksum as secondary check
+        # (handles cases where NPI doesn't exist at all)
         if not self._luhn_check(npi):
             return {"valid": False, "npi": npi, "error": "Invalid NPI checksum"}
 
-        # Check if NPI exists in registry
-        provider = await self.get_by_npi(npi)
-        if provider is None:
-            return {"valid": False, "npi": npi, "error": "NPI not found in registry"}
-
-        return {"valid": True, "npi": npi}
+        return {"valid": False, "npi": npi, "error": "NPI not found in registry"}
 
     def _luhn_check(self, npi: str) -> bool:
         """
