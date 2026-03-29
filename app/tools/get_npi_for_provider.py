@@ -17,6 +17,7 @@ async def get_npi_for_provider(
     city: Optional[str] = None,
     state: Optional[str] = None,
     zip_code: Optional[str] = None,
+    specialty: Optional[str] = None,
     nppes_client: Optional[NPPESClient] = None,
     cache: Optional[CacheClient] = None
 ):
@@ -30,6 +31,7 @@ async def get_npi_for_provider(
         city: City filter
         state: State filter
         zip_code: ZIP code filter
+        specialty: Taxonomy code filter (e.g., "207Q00000X")
         nppes_client: NPPESClient instance (optional, for testing)
         cache: CacheClient instance (optional, for testing)
 
@@ -54,7 +56,8 @@ async def get_npi_for_provider(
     cache_key = cache.build_search_key(
         name=first_name or last_name,
         city=city,
-        state=state
+        state=state,
+        specialty=specialty
     )
 
     async def search_providers() -> list[dict]:
@@ -66,6 +69,7 @@ async def get_npi_for_provider(
             city=city,
             state=state,
             zip_code=zip_code,
+            specialty=specialty,
             limit=10
         )
 

@@ -131,7 +131,8 @@ TOOL_PARAMETER_DOCS = {
         "organization_name": "Organization/facility name (for hospitals, clinics)",
         "city": "City filter",
         "state": "State filter (2-letter code)",
-        "zip_code": "ZIP code filter (5 digits or ZIP+4)"
+        "zip_code": "ZIP code filter (5 digits or ZIP+4)",
+        "specialty": "Taxonomy code filter (e.g., '207Q00000X' for Cardiology)"
     }
 }
 

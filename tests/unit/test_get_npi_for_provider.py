@@ -139,3 +139,36 @@ async def test_get_npi_for_provider_handles_organization():
 
     assert result["found"] is True
     assert result["npi"] == "3333333333"
+
+
+# =============================================================================
+# Test: get_npi_for_provider_passes_specialty_to_api
+# =============================================================================
+@pytest.mark.asyncio
+async def test_get_npi_for_provider_passes_specialty_to_api():
+    """Test that get_npi_for_provider passes specialty parameter to NPPES API."""
+    mock_nppes = AsyncMock(spec=NPPESClient)
+    mock_nppes.search_by_name_and_fields = AsyncMock(return_value=[
+        {"number": "4444444444", "basic": {"first_name": "Jane", "last_name": "Doe"}}
+    ])
+
+    mock_cache = MagicMock(spec=CacheClient)
+    mock_cache.get_or_fetch = AsyncMock(side_effect=_call_fetch_fn)
+    mock_cache.build_search_key = CacheClient().build_search_key
+
+    # Call with specialty parameter
+    result = await get_npi_for_provider(
+        first_name="Jane",
+        last_name="Doe",
+        specialty="207Q00000X",  # Cardiology
+        nppes_client=mock_nppes,
+        cache=mock_cache
+    )
+
+    # Verify specialty was passed to the API
+    mock_nppes.search_by_name_and_fields.assert_called_once()
+    call_kwargs = mock_nppes.search_by_name_and_fields.call_args.kwargs
+    assert call_kwargs.get("specialty") == "207Q00000X"
+
+    assert result["found"] is True
+    assert result["npi"] == "4444444444"
