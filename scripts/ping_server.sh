@@ -8,10 +8,10 @@ LOGFILE="/home/aiagent/.claude/projects/nppes-mcp-server/logs/ping.log"
 # Create logs directory if it doesn't exist
 mkdir -p "$(dirname "$LOGFILE")"
 
-# Send a ping request
+# Send a real tool call to keep the server warm and awake
 RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"ping"}' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"validate_npi","arguments":{"npi":"1000000023"}}}' \
   --max-time 30 2>&1)
 
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')

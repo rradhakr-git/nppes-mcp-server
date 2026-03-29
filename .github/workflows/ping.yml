@@ -1,0 +1,26 @@
+# Ping NPPES MCP Server to keep it awake
+# Runs every 5 minutes from GitHub's servers (independent of local machine)
+
+name: Ping Server
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping validate_npi endpoint
+        run: |
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://nppes-mcp-server.onrender.com/mcp" \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"validate_npi","arguments":{"npi":"1000000023"}}}' \
+            --max-time 30)
+          echo "HTTP Response: $RESPONSE"
+          if [ "$RESPONSE" = "200" ]; then
+            echo "Server is awake"
+          else
+            echo "Server may be sleeping (HTTP $RESPONSE)"
+          fi
