@@ -63,3 +63,26 @@ async def test_tool_passes_specialty_to_api():
     call_kwargs = mock_nppes.search_by_name_and_fields.call_args.kwargs
     assert call_kwargs.get("specialty") == "207Q00000X"
 ```
+
+---
+
+## README Maintenance Rule
+
+**Before any deployment, ensure README.md accurately reflects the current MCP tools and configuration.**
+
+### Why This Matters
+- Users (including yourself for portfolio) rely on README for integration
+- Documentation drift causes integration failures
+- Missing tools/params = users can't access available features
+
+### How to Apply
+
+Before merging to main or deploying:
+
+1. **Check tool definitions** in `app/main.py` → `TOOL_DEFINITIONS`
+2. **Verify each tool** has a corresponding entry in README.md MCP Tools section
+3. **Check parameters** - ensure tool signature matches README
+4. **Run tests** to confirm coverage hasn't regressed
+
+This ensures your README stays in sync with deployments - critical for portfolio credibility.
+```

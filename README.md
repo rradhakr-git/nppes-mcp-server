@@ -73,6 +73,8 @@ docker run -p 8000:8000 -e REDIS_URL=your_redis_url nppes-mcp
 
 ## MCP Tools
 
+This server exposes the following MCP tools via JSON-RPC 2.0 at the `/mcp` endpoint:
+
 ### `search_providers`
 
 Search for healthcare providers with filters:
@@ -81,10 +83,60 @@ Search for healthcare providers with filters:
 {
   "name": "search_providers",
   "arguments": {
-    "state": "CT",
+    "name": "John Smith",
+    "first_name": "John",
+    "last_name": "Smith",
+    "organization_name": "Hospital",
     "city": "Hartford",
+    "state": "CT",
     "specialty": "207Q00000X",
+    "zip_code": "06106",
     "limit": 10
+  }
+}
+```
+
+### `get_provider_by_npi`
+
+Get full provider record by NPI number:
+
+```json
+{
+  "name": "get_provider_by_npi",
+  "arguments": {
+    "npi": "1000000023"
+  }
+}
+```
+
+### `validate_npi`
+
+Validate an NPI using Mod 97-10 checksum:
+
+```json
+{
+  "name": "validate_npi",
+  "arguments": {
+    "npi": "1000000023"
+  }
+}
+```
+
+### `get_npi_for_provider`
+
+Search for NPI numbers by provider name and location:
+
+```json
+{
+  "name": "get_npi_for_provider",
+  "arguments": {
+    "first_name": "John",
+    "last_name": "Smith",
+    "organization_name": "Medical Center",
+    "city": "Hartford",
+    "state": "CT",
+    "zip_code": "06106",
+    "specialty": "207Q00000X"
   }
 }
 ```
@@ -110,7 +162,11 @@ Combined RAG + NPPES search - finds providers matching a natural language query:
 {
   "name": "semantic_search",
   "arguments": {
-    "query": "find me a pediatric cardiologist in Connecticut"
+    "query": "find me a pediatric cardiologist in Connecticut",
+    "state": "CT",
+    "city": "Hartford",
+    "top_k": 5,
+    "min_score": 0.0
   }
 }
 ```
@@ -196,8 +252,25 @@ MCP_SERVER_URL=https://your-server.com pytest tests/e2e -v
 - **httpx** - Async HTTP client for NPPES API
 - **Redis** (Upstash) - Caching layer
 - **FAISS** - Vector similarity search
-- **sentence-transformers** - Embeddings for taxonomy semantic search
-- **pytest** - Testing
+- **sentence-transformers** - Embeddings (`paraphrase-MiniLM-L3-v2`)
+- **pytest** - Testing with 85%+ coverage
+
+## Test Coverage
+
+```bash
+# Run all tests
+pytest
+
+# Current coverage: ~85%
+# 119 tests passing across unit, integration, and contract tests
+```
+
+| Test Suite | Tests |
+|------------|-------|
+| `tests/unit/` | 63 tests |
+| `tests/integration/` | 14 tests |
+| `tests/contract/` | Schema validation |
+| `tests/e2e/` | Live server tests |
 
 ## Why This Exists
 
