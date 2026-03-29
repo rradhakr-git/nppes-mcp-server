@@ -97,7 +97,10 @@ def parse_docstring_params(func) -> dict[str, str]:
 # Parameter metadata for enhanced documentation
 TOOL_PARAMETER_DOCS = {
     "search_providers": {
-        "name": "Provider first or last name",
+        "name": "Provider first name (deprecated, use first_name instead)",
+        "first_name": "Provider first name (e.g., 'Barry')",
+        "last_name": "Provider last name (e.g., 'Hartman')",
+        "organization_name": "Organization/facility name (for hospitals, clinics)",
         "city": "City name filter (e.g., 'New Haven')",
         "state": "Two-letter state code (e.g., 'CT', 'CA', 'NY')",
         "specialty": "Taxonomy code or specialty name (e.g., 'Cardiology', '207Q00000X')",

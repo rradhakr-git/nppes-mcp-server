@@ -53,6 +53,9 @@ class NPPESClient:
     async def search(
         self,
         name: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        organization_name: Optional[str] = None,
         city: Optional[str] = None,
         state: Optional[str] = None,
         specialty: Optional[str] = None,
@@ -62,7 +65,10 @@ class NPPESClient:
         Search for healthcare providers in the NPPES registry.
 
         Args:
-            name: Provider first or last name
+            name: Provider first name (deprecated, use first_name instead)
+            first_name: Provider first name
+            last_name: Provider last name
+            organization_name: Organization/facility name
             city: City filter
             state: Two-letter state code
             specialty: Taxonomy code filter (e.g., "207Q00000X")
@@ -74,8 +80,20 @@ class NPPESClient:
         # NPPES API requires version parameter
         params = {"version": API_VERSION, "limit": limit}
 
-        if name:
+        # Handle name parameter for backward compatibility
+        # If both 'name' and 'first_name' are provided, 'first_name' takes precedence
+        if first_name:
+            params["first_name"] = first_name
+        elif name:
+            # Deprecated: 'name' maps to first_name for backward compatibility
             params["first_name"] = name
+
+        if last_name:
+            params["last_name"] = last_name
+
+        if organization_name:
+            params["organization_name"] = organization_name
+
         if city:
             params["city"] = city
         if state:

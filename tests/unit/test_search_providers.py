@@ -155,3 +155,145 @@ async def test_search_providers_respects_limit_param():
     mock_nppes.search.assert_called_once()
     call_kwargs = mock_nppes.search.call_args.kwargs
     assert call_kwargs.get("limit") == 5
+
+
+# =============================================================================
+# TDD: Tests for first_name, last_name parameters in search_providers
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Test: search_providers_passes_first_name_to_nppes
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_providers_passes_first_name_to_nppes():
+    """Test that search_providers passes first_name parameter to NPPES client."""
+    # Create mock NPPES client
+    mock_nppes = AsyncMock(spec=NPPESClient)
+    mock_nppes.search = AsyncMock(return_value=[])
+
+    # Create mock cache that properly calls fetch_fn
+    async def mock_get_or_fetch(key, fetch_fn):
+        return await fetch_fn()
+
+    mock_cache = MagicMock(spec=CacheClient)
+    mock_cache.get_or_fetch = mock_get_or_fetch
+    mock_cache.build_search_key = CacheClient().build_search_key
+
+    # Call with first_name
+    await search_providers(
+        first_name="Barry",
+        state="NY",
+        cache=mock_cache,
+        nppes_client=mock_nppes
+    )
+
+    # Verify NPPES client was called with first_name
+    mock_nppes.search.assert_called_once()
+    call_kwargs = mock_nppes.search.call_args.kwargs
+    assert call_kwargs.get("first_name") == "Barry"
+    assert call_kwargs.get("state") == "NY"
+
+
+# -----------------------------------------------------------------------------
+# Test: search_providers_passes_last_name_to_nppes
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_providers_passes_last_name_to_nppes():
+    """Test that search_providers passes last_name parameter to NPPES client."""
+    # Create mock NPPES client
+    mock_nppes = AsyncMock(spec=NPPESClient)
+    mock_nppes.search = AsyncMock(return_value=[])
+
+    # Create mock cache that properly calls fetch_fn
+    async def mock_get_or_fetch(key, fetch_fn):
+        return await fetch_fn()
+
+    mock_cache = MagicMock(spec=CacheClient)
+    mock_cache.get_or_fetch = mock_get_or_fetch
+    mock_cache.build_search_key = CacheClient().build_search_key
+
+    # Call with last_name
+    await search_providers(
+        last_name="Hartman",
+        state="NY",
+        cache=mock_cache,
+        nppes_client=mock_nppes
+    )
+
+    # Verify NPPES client was called with last_name
+    mock_nppes.search.assert_called_once()
+    call_kwargs = mock_nppes.search.call_args.kwargs
+    assert call_kwargs.get("last_name") == "Hartman"
+    assert call_kwargs.get("state") == "NY"
+
+
+# -----------------------------------------------------------------------------
+# Test: search_providers_passes_both_first_and_last_name
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_providers_passes_both_first_and_last_name():
+    """Test that search_providers passes both first_name and last_name."""
+    # Create mock NPPES client
+    mock_nppes = AsyncMock(spec=NPPESClient)
+    mock_nppes.search = AsyncMock(return_value=[
+        {"npi": "1053313940", "basic": {"first_name": "Barry", "last_name": "Hartman"}}
+    ])
+
+    # Create mock cache that properly calls fetch_fn
+    async def mock_get_or_fetch(key, fetch_fn):
+        return await fetch_fn()
+
+    mock_cache = MagicMock(spec=CacheClient)
+    mock_cache.get_or_fetch = mock_get_or_fetch
+    mock_cache.build_search_key = CacheClient().build_search_key
+
+    # Call with both first_name and last_name
+    result = await search_providers(
+        first_name="Barry",
+        last_name="Hartman",
+        state="NY",
+        cache=mock_cache,
+        nppes_client=mock_nppes
+    )
+
+    # Verify NPPES client was called with both params
+    mock_nppes.search.assert_called_once()
+    call_kwargs = mock_nppes.search.call_args.kwargs
+    assert call_kwargs.get("first_name") == "Barry"
+    assert call_kwargs.get("last_name") == "Hartman"
+    assert call_kwargs.get("state") == "NY"
+    # Verify result contains the provider
+    assert len(result) == 1
+    assert result[0]["npi"] == "1053313940"
+
+
+# -----------------------------------------------------------------------------
+# Test: search_providers_backward_compatible_with_name
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_providers_backward_compatible_with_name():
+    """Test that search_providers still works with deprecated 'name' parameter."""
+    # Create mock NPPES client
+    mock_nppes = AsyncMock(spec=NPPESClient)
+    mock_nppes.search = AsyncMock(return_value=[])
+
+    # Create mock cache that properly calls fetch_fn
+    async def mock_get_or_fetch(key, fetch_fn):
+        return await fetch_fn()
+
+    mock_cache = MagicMock(spec=CacheClient)
+    mock_cache.get_or_fetch = mock_get_or_fetch
+    mock_cache.build_search_key = CacheClient().build_search_key
+
+    # Call with deprecated 'name' parameter
+    await search_providers(
+        name="Barry",
+        state="NY",
+        cache=mock_cache,
+        nppes_client=mock_nppes
+    )
+
+    # Verify NPPES client was called (backward compatible)
+    mock_nppes.search.assert_called_once()
+    call_kwargs = mock_nppes.search.call_args.kwargs
+    assert call_kwargs.get("name") == "Barry"

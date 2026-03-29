@@ -435,3 +435,165 @@ async def test_search_fallback_removes_taxonomy():
     # Results may be filtered due to fallback
     assert isinstance(result, list)
     await client.close()
+
+
+# =============================================================================
+# TDD: Tests for first_name, last_name, organization_name parameters
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Test: search_passes_first_name_parameter
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_passes_first_name_parameter():
+    """Test that search passes first_name parameter to API."""
+    client = NPPESClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "result_count": 1,
+        "results": [
+            {"npi": "1234567890", "basic": {"first_name": "Barry", "last_name": "Hartman"}}
+        ]
+    }
+
+    with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_response
+
+        result = await client.search(first_name="Barry", state="NY")
+
+    assert len(result) == 1
+    # Verify the API was called with first_name parameter
+    call_args = mock_get.call_args
+    params = call_args.kwargs.get("params", {})
+    assert params.get("first_name") == "Barry"
+    assert params.get("state") == "NY"
+    await client.close()
+
+
+# -----------------------------------------------------------------------------
+# Test: search_passes_last_name_parameter
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_passes_last_name_parameter():
+    """Test that search passes last_name parameter to API."""
+    client = NPPESClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "result_count": 1,
+        "results": [
+            {"npi": "1234567890", "basic": {"first_name": "Barry", "last_name": "Hartman"}}
+        ]
+    }
+
+    with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_response
+
+        result = await client.search(last_name="Hartman", state="NY")
+
+    assert len(result) == 1
+    # Verify the API was called with last_name parameter
+    call_args = mock_get.call_args
+    params = call_args.kwargs.get("params", {})
+    assert params.get("last_name") == "Hartman"
+    assert params.get("state") == "NY"
+    await client.close()
+
+
+# -----------------------------------------------------------------------------
+# Test: search_passes_organization_name_parameter
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_passes_organization_name_parameter():
+    """Test that search passes organization_name parameter to API."""
+    client = NPPESClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "result_count": 1,
+        "results": [
+            {
+                "npi": "1234567890",
+                "basic": {"organization_name": "City Medical Group"}
+            }
+        ]
+    }
+
+    with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_response
+
+        result = await client.search(organization_name="City Medical", state="NY")
+
+    assert len(result) == 1
+    # Verify the API was called with organization_name parameter
+    call_args = mock_get.call_args
+    params = call_args.kwargs.get("params", {})
+    assert params.get("organization_name") == "City Medical"
+    assert params.get("state") == "NY"
+    await client.close()
+
+
+# -----------------------------------------------------------------------------
+# Test: search_with_both_first_and_last_name
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_with_both_first_and_last_name():
+    """Test that search passes both first_name and last_name to API."""
+    client = NPPESClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "result_count": 1,
+        "results": [
+            {"npi": "1053313940", "basic": {"first_name": "Barry", "last_name": "Hartman"}}
+        ]
+    }
+
+    with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_response
+
+        result = await client.search(first_name="Barry", last_name="Hartman", state="NY")
+
+    assert len(result) == 1
+    # Verify both parameters are passed to the API
+    call_args = mock_get.call_args
+    params = call_args.kwargs.get("params", {})
+    assert params.get("first_name") == "Barry"
+    assert params.get("last_name") == "Hartman"
+    assert params.get("state") == "NY"
+    await client.close()
+
+
+# -----------------------------------------------------------------------------
+# Test: search_deprecated_name_parameter_maps_to_first_name
+# -----------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_search_deprecated_name_parameter_maps_to_first_name():
+    """Test that deprecated 'name' parameter still works as first_name."""
+    client = NPPESClient()
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "result_count": 1,
+        "results": [
+            {"npi": "1234567890", "basic": {"first_name": "Barry", "last_name": "Hartman"}}
+        ]
+    }
+
+    with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_response
+
+        result = await client.search(name="Barry", state="NY")
+
+    assert len(result) == 1
+    # Verify name is passed as first_name for backward compatibility
+    call_args = mock_get.call_args
+    params = call_args.kwargs.get("params", {})
+    assert params.get("first_name") == "Barry"
+    await client.close()
